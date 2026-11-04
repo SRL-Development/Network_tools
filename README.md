@@ -32,6 +32,16 @@ Npcap 免费版的许可与安装器不支持第三方产品静默再分发，�
 
 GitHub Releases 提供四套部署包：
 
+**最新版：[`v1.1.1 数据清理中心`](https://github.com/SRL-Development/Network_tools/releases/latest)**
+
+- [Windows x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-windows-x64.zip)
+- [Linux x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-linux-x64.tar.gz)
+- [Docker Compose](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-docker.tar.gz)
+- [macOS Intel / Apple Silicon](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-macos.tar.gz)
+- [SHA-256 校验文件](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/SHA256SUMS.txt)
+
+多架构 Docker 镜像：`docker pull ghcr.io/srl-development/network_tools:1.1.1`
+
 | 发布包 | 内容 | 启动方式 |
 | --- | --- | --- |
 | Windows x64 | 单文件 EXE + 启动脚本 | 双击 `启动平台.cmd` |
