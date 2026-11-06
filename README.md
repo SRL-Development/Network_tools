@@ -30,16 +30,14 @@ Npcap 免费版的许可与安装器不支持第三方产品静默再分发，�
 
 ## 一、快速开始
 
-### 方式 0：正式发布包（Windows / Linux / Docker / macOS）
+### 方式 0：正式发布包（Windows / Docker）
 
-GitHub Releases 提供四套部署包：
+当前正式维护 Windows x64 与 Docker 两套部署包：
 
 **最新版：[`v1.2.0 全球网络诊断增强`](https://github.com/SRL-Development/Network_tools/releases/latest)**
 
 - [Windows x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-windows-x64.zip)
-- [Linux x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-linux-x64.tar.gz)
 - [Docker Compose](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-docker.tar.gz)
-- [macOS Intel / Apple Silicon](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-macos.tar.gz)
 - [SHA-256 校验文件](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/SHA256SUMS.txt)
 
 多架构 Docker 镜像：`docker pull ghcr.io/srl-development/network_tools:1.2.0`
@@ -49,11 +47,9 @@ v1.2.0 将网络运维工具箱扩展到 **30 个工具、14 个分类**：新�
 | 发布包 | 内容 | 启动方式 |
 | --- | --- | --- |
 | Windows x64 | 单文件 EXE + 启动脚本 | 双击 `启动平台.cmd` |
-| Linux x64 | 单文件二进制 + systemd 安装脚本 | `sudo ./install.sh` |
 | Docker | Dockerfile + Compose + 完整源码 | `docker compose up -d --build` |
-| macOS | Apple Silicon 与 Intel 双架构、ad-hoc 签名二进制 | 双击 `start.command` |
 
-四种版本都不需要用户逐项配置平台依赖。Windows 会在首次启动后后台检测工具；Linux 安装脚本和 Docker 镜像会安装 Nmap、TShark、MTR、iperf3、Net-SNMP；macOS 包提供一键 Homebrew 工具安装脚本，平台自身的回退能力无需这些外部命令也可启动。
+两种版本都不需要用户逐项配置平台依赖。Windows 会在首次启动后后台检测工具；Docker 镜像会安装 Nmap、TShark、MTR、iperf3、Net-SNMP。
 
 Windows 解压后双击 `启动平台.cmd` 即可，**不需要装 Node.js**，也不用执行 `npm install`。
 
@@ -61,10 +57,10 @@ Windows 解压后双击 `启动平台.cmd` 即可，**不需要装 Node.js**，�
 - 数据（账号、凭据、测速记录、抓包索引、审计日志）写在 **exe 所在目录的 `data\` 文件夹**里
 - **不要把 exe 放在 `C:\Program Files\` 等只读目录**，那样启动会报「数据目录不可用」。放到桌面、D 盘、项目目录等普通可写位置即可
 
-重新打包四个平台二进制（改过 `server/` 或 `public/` 之后需要）：
+重新打包 Windows 二进制（改过 `server/` 或 `public/` 之后需要）：
 
 ```bash
-npm run build          # 产出 dist/bin 下的 Windows、Linux、macOS x64/arm64 二进制
+npm run build          # 产出 dist/bin/netops-console-windows-x64.exe
 ```
 
 打包依赖仍在维护的 [@yao-pkg/pkg](https://github.com/yao-pkg/pkg)，首次执行会从网上下载 Node 基础运行时（约 37 MB），需要能联网。缓存目录是 `C:\Users\<你>\.pkg-cache`。

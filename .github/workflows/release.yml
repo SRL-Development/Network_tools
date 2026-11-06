@@ -43,66 +43,6 @@ jobs:
           path: dist/release/*.zip
           if-no-files-found: error
 
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - run: npm ci
-      - run: npm run build:linux
-      - name: Package Linux x64
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ inputs.version }}"
-          [[ -n "${version}" ]] || version="${GITHUB_REF_NAME#v}"
-          name="netops-console-v${version}-linux-x64"
-          mkdir -p "dist/release/${name}"
-          cp dist/bin/netops-console-linux-x64 "dist/release/${name}/netops-console"
-          cp deploy/linux/install.sh deploy/linux/netops-console.service deploy/linux/README.txt "dist/release/${name}/"
-          chmod 0755 "dist/release/${name}/netops-console" "dist/release/${name}/install.sh"
-          tar -C dist/release -czf "dist/release/${name}.tar.gz" "${name}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-linux
-          path: dist/release/*.tar.gz
-          if-no-files-found: error
-
-  macos:
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-      - run: npm ci
-      - run: npm run build:mac
-      - name: Sign and package macOS Intel / Apple Silicon
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ inputs.version }}"
-          [[ -n "${version}" ]] || version="${GITHUB_REF_NAME#v}"
-          name="netops-console-v${version}-macos"
-          codesign --force --sign - dist/bin/netops-console-macos-x64
-          codesign --force --sign - dist/bin/netops-console-macos-arm64
-          codesign --verify dist/bin/netops-console-macos-x64
-          codesign --verify dist/bin/netops-console-macos-arm64
-          mkdir -p "dist/release/${name}"
-          cp dist/bin/netops-console-macos-x64 dist/bin/netops-console-macos-arm64 "dist/release/${name}/"
-          cp deploy/macos/start.command deploy/macos/install-tools.command deploy/macos/README.txt "dist/release/${name}/"
-          chmod 0755 "dist/release/${name}"/netops-console-macos-* "dist/release/${name}"/*.command
-          tar -C dist/release -czf "dist/release/${name}.tar.gz" "${name}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-macos
-          path: dist/release/*.tar.gz
-          if-no-files-found: error
-
   docker-bundle:
     runs-on: ubuntu-latest
     steps:
@@ -126,7 +66,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [windows, linux, macos, docker-bundle]
+    needs: [windows, docker-bundle]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -150,7 +90,7 @@ jobs:
             - DoH / DNSSEC：Cloudflare 与 Google 加密 DNS 多源核验、AD 状态和一致性结论
             - ASN / BGP / RPKI：IP、CIDR、ASN 的全球路由公告、起源网络和 ROA 验证
             - 全部新增工具均接入参数校验、权限门禁、审计记录、结论和下一步建议
-            - Windows、Linux、Docker、macOS 四套交付包由对应原生系统自动构建
+            - Windows x64 安装包与 Docker Compose 源码包自动构建
 
             > 首次登录：`admin / admin@123`，请登录后立即修改密码。
           files: |

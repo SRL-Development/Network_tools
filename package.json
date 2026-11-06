@@ -22,11 +22,8 @@
     "deep": "node tools/deep-tools-smoke.js",
     "wifi": "node tools/wifi-smoke.js",
     "migrate": "node tools/migrate.js",
-    "build": "npm run build:binaries",
-    "build:binaries": "npm run build:win && npm run build:linux && npm run build:mac",
-    "build:win": "pkg . --target node18-win-x64 --output dist/bin/netops-console-windows-x64.exe --compress GZip",
-    "build:linux": "pkg . --target node18-linux-x64 --output dist/bin/netops-console-linux-x64 --compress GZip",
-    "build:mac": "pkg . --target node18-macos-x64 --output dist/bin/netops-console-macos-x64 --compress GZip && pkg . --target node18-macos-arm64 --output dist/bin/netops-console-macos-arm64 --compress GZip --no-bytecode --public --public-packages \"*\""
+    "build": "npm run build:win",
+    "build:win": "pkg . --target node18-win-x64 --output dist/bin/netops-console-windows-x64.exe --compress GZip"
   },
   "pkg": {
     "scripts": [
@@ -38,11 +35,7 @@
       "node_modules/vue/dist/**/*",
       "node_modules/echarts/dist/**/*"
     ],
-    "targets": [
-      "node18-win-x64",
-      "node18-macos-x64",
-      "node18-linux-x64"
-    ],
+    "targets": ["node18-win-x64"],
     "outputPath": "dist",
     "outfile": "netops-console-%s"
   },
