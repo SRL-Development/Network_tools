@@ -70,6 +70,12 @@ function startRedirectServer() {
   ok('isPrivateIp 私有', tb.isPrivateIp('10.0.0.1') === true && tb.isPrivateIp('192.168.1.1') === true);
   ok('isPrivateIp 公网', tb.isPrivateIp('8.8.8.8') === false);
   ok('humanBps 换算', /Mbps|bps|Kbps/.test(tb.humanBps(1048576)) && tb.humanBps(1048576) !== '0 bps');
+  ok('TCP 端口表达式解析', JSON.stringify(tb.parseProbePorts('443,80,8000-8002,443')) === JSON.stringify([80, 443, 8000, 8001, 8002]));
+  ok('BGP 资源校验', tb.validBgpResource('AS13335') === 'AS13335' && tb.validBgpResource('1.1.1.0/24') === '1.1.1.0/24' && tb.validBgpResource('bad resource') === '');
+  const dohBad = await tb.dohDiag('', {});
+  ok('DoH 拒绝空域名', dohBad.ok === false && /合法/.test(dohBad.error || ''), dohBad.error);
+  const bgpBad = await tb.bgpLookup('bad resource');
+  ok('BGP 拒绝非法资源', bgpBad.ok === false && /合法/.test(bgpBad.error || ''), bgpBad.error);
   ok('SNMP 主机与 OID 校验', snmpTools.validHost('sw-core-01.example.local') === 'sw-core-01.example.local' &&
     snmpTools.validHost('bad host;$') === '' && snmpTools.normalizeOid('.1.3.6.1.2.1.1.5.0') === '1.3.6.1.2.1.1.5.0');
   const sgBad = await snmpTools.get({ host: 'bad host;$', version: '2c', community: 'public', oid: '1.3.6.1.2.1.1.5.0' });
@@ -91,6 +97,10 @@ function startRedirectServer() {
     const hc = await tb.httpCheck(base + '/a', { followRedirects: true });
     ok('httpCheck 跟随跳转', hc.ok && hc.status === 200 && typeof hc.ms === 'number' && hc.ms >= 0,
       `status=${hc.status} ms=${hc.ms}`);
+
+    const tp = await tb.tcpProbe('127.0.0.1', { ports: String(port), attempts: 2, timeoutMs: 800 });
+    ok('tcpProbe 多次建连质量', tp.ok && tp.summary.reachable === 1 && tp.ports[0].success === 2 && tp.ports[0].successRate === 100,
+      `reachable=${tp.summary && tp.summary.reachable} rate=${tp.ports && tp.ports[0] && tp.ports[0].successRate}%`);
   } finally {
     srv.close();
   }
@@ -275,8 +285,11 @@ function startRedirectServer() {
       const subAllow = await (await j('/api/toolbox/subnet', { mode: 'analyze', spec: '192.168.0.0/16' }, atok)).json();
       ok('B 审计角色可读类工具(200)', subAllow.ok === true, `http=ok`);
 
-      // 新模块 12 个 /toolbox/* 路由：连通性 + scan/auth 门禁
+      // 扩展模块 /toolbox/* 路由：连通性 + scan/auth 门禁
       const newRoutes = [
+        ['/api/toolbox/doh',        'auth', { domain: '', opts: { type: 'A' } }],
+        ['/api/toolbox/bgp',        'auth', { resource: 'bad resource' }],
+        ['/api/toolbox/tcp-probe',  'scan', { host: '127.0.0.1', opts: { ports: '8787', attempts: 1, timeoutMs: 400 } }],
         ['/api/toolbox/portscan',   'scan', { host: '127.0.0.1', ports: '135', timeout: 400 }],
         ['/api/toolbox/discovery',  'scan', { target: '127.0.0.1', methods: ['tcp'], timeout: 400 }],
         ['/api/toolbox/hostname',   'scan', { ip: '127.0.0.1', timeout: 400 }],

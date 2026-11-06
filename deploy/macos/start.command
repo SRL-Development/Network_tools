@@ -9,5 +9,9 @@ case "$(uname -m)" in
 esac
 
 chmod +x "$BIN"
-xattr -d com.apple.quarantine "$BIN" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$BIN" 2>/dev/null || true
+if ! codesign --verify "$BIN" >/dev/null 2>&1; then
+  echo "正在为本机架构添加 ad-hoc 签名…"
+  codesign --force --sign - "$BIN"
+fi
 ./"$BIN"

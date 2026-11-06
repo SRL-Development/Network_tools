@@ -10,7 +10,7 @@
   const ic = (n, s) => ic0(n, s);
 
   /* ----------------------------- 工具清单 ----------------------------- */
-  const CATS = ['Web / HTTP', '域名 / DNS', '主机探测', '设备管理协议', '扫描发现', '安全检测', '主机信息', '无线分析', '网络体检', '会话测试', '主机与网络', '网络计算', '电源管理'];
+  const CATS = ['Web / HTTP', '域名 / DNS', '互联网路由', '主机探测', '设备管理协议', '扫描发现', '安全检测', '主机信息', '无线分析', '网络体检', '会话测试', '主机与网络', '网络计算', '电源管理'];
   const TOOLS = [
     { key: 'redirect', name: '重定向链追踪', cat: 'Web / HTTP', icon: 'share', api: 'redirect', perm: 'auth',
       desc: '逐跳追踪 30x 跳转，识别 HTTPS 降级、跨域、跨端口、HSTS 与重定向环路', example: 'http://www.baidu.com', standard: 'curl' },
@@ -24,8 +24,14 @@
       desc: '查询本机经 NAT 后的公网出口地址与 ASN / 运营商', example: '' },
     { key: 'dns', name: 'DNS 诊断', cat: '域名 / DNS', icon: 'globe', api: 'dns', perm: 'auth',
       desc: '本机与多家公共 DNS 多类型对比，发现解析不一致与疑似劫持', example: 'baidu.com', standard: 'dig / nslookup' },
+    { key: 'doh', name: 'DoH / DNSSEC 核验', cat: '域名 / DNS', icon: 'shield', api: 'doh', perm: 'auth',
+      desc: '经 Cloudflare 与 Google 加密 DNS 交叉查询，核验结果一致性和 DNSSEC AD 状态', example: 'example.com', standard: 'DNS over HTTPS / DNSSEC' },
+    { key: 'bgp', name: 'ASN / BGP / RPKI', cat: '互联网路由', icon: 'share', api: 'bgp', perm: 'auth',
+      desc: '查询 IP、前缀或 ASN 的全球 BGP 公告、起源网络与 RPKI 路由源授权状态', example: '8.8.8.8', standard: 'RIPEstat / RPKI' },
     { key: 'ping', name: 'Ping 详版', cat: '主机探测', icon: 'wifi', api: 'ping', perm: 'scan',
       desc: 'ICMP 探测并补充 TTL，给出丢包、抖动与健康评分', example: '8.8.8.8' },
+    { key: 'tcpprobe', name: 'TCP 端口连通质量', cat: '主机探测', icon: 'activity', api: 'tcp-probe', perm: 'scan',
+      desc: '对多个端口重复建连，量化成功率、最小/平均/最大时延并区分稳定、间歇失败与不可达', example: '127.0.0.1', standard: 'tcping / nc' },
     { key: 'mtr', name: 'MTR 路由追踪', cat: '主机探测', icon: 'share', api: 'mtr', perm: 'scan',
       desc: '多轮 tracert/traceroute 采样，统计每跳延迟、抖动与丢包', example: '8.8.8.8', standard: 'MTR / traceroute' },
     { key: 'fingerprint', name: '服务 / OS 指纹', cat: '主机探测', icon: 'cpu', api: 'fingerprint', perm: 'scan',
@@ -78,7 +84,10 @@
     host: '127.0.0.1', scPort: 443,
     query: 'baidu.com', domain: 'baidu.com',
     dnsTypes: 'A,AAAA,CNAME,MX,NS,TXT', dnsServers: '',
+    dohDomain: 'example.com', dohType: 'A', dohProviders: 'cloudflare,google', dohTimeout: 8000,
+    bgpResource: '8.8.8.8', bgpTimeout: 9000,
     pingCount: 4, pingTimeout: 1500,
+    tcpHost: '127.0.0.1', tcpPorts: '22,80,443', tcpAttempts: 3, tcpTimeout: 1500,
     mtrMaxHops: 30, mtrRounds: 2, mtrProbeTimeout: 1000,
     fpFull: false, fpPorts: '', fpTimeout: 1200,
     ifInterval: 1000,
@@ -153,10 +162,13 @@
       case 'whois': return { query: form.query, opts: { timeoutMs: num(form.hcTimeout, 8000) } };
       case 'publicip': return {};
       case 'ping': return { host: form.host, opts: { count: num(form.pingCount, 4), timeoutMs: num(form.pingTimeout, 1500) } };
+      case 'tcpprobe': return { host: form.tcpHost, opts: { ports: form.tcpPorts, attempts: num(form.tcpAttempts, 3), timeoutMs: num(form.tcpTimeout, 1500) } };
       case 'mtr': return { host: form.host, opts: { maxHops: num(form.mtrMaxHops, 30), rounds: num(form.mtrRounds, 2), probeTimeoutMs: num(form.mtrProbeTimeout, 1000) } };
       case 'snmpget': return { ...snmpBody(), oids: form.snmpOids.split(/[,\s]+/).filter(Boolean) };
       case 'snmpwalk': return { ...snmpBody(), oid: form.snmpRootOid, limit: num(form.snmpLimit, 300), maxRepetitions: num(form.snmpMaxRepetitions, 20) };
       case 'dns': return { domain: form.domain, opts: { types: form.dnsTypes.split(/[,\s]+/).map(s => s.toUpperCase()).filter(Boolean), servers: form.dnsServers.split(/[,\s]+/).filter(Boolean) } };
+      case 'doh': return { domain: form.dohDomain, opts: { type: form.dohType, providers: form.dohProviders, timeoutMs: num(form.dohTimeout, 8000) } };
+      case 'bgp': return { resource: form.bgpResource, opts: { timeoutMs: num(form.bgpTimeout, 9000) } };
       case 'fingerprint': return { host: form.host, opts: { full: form.fpFull, ports: form.fpPorts ? form.fpPorts.split(/[,\s]+/).map(Number).filter(n => n > 0) : [], timeoutMs: num(form.fpTimeout, 1200) } };
       case 'ifstat': return { opts: { intervalMs: num(form.ifInterval, 1000) } };
       case 'ntp': return { opts: { servers: form.ntpServers.split(/[,\s]+/).filter(Boolean) } };
@@ -324,6 +336,26 @@
             <input class="inp" v-model.trim="form.dnsServers" placeholder="223.5.5.5,8.8.8.8"></div>
         </div>
 
+        <!-- ============ DoH / DNSSEC ============ -->
+        <div v-else-if="current==='doh'" class="row gap12 wrap">
+          <div class="field" style="flex:1;min-width:230px"><label>域名 / 反向查询名称</label>
+            <input class="inp" v-model.trim="form.dohDomain" placeholder="example.com"></div>
+          <div class="field" style="width:130px"><label>记录类型</label>
+            <select class="inp" v-model="form.dohType"><option>A</option><option>AAAA</option><option>CNAME</option><option>MX</option><option>NS</option><option>TXT</option><option>SOA</option><option>CAA</option><option>SRV</option><option>PTR</option><option>DNSKEY</option><option>DS</option></select></div>
+          <div class="field" style="flex:1;min-width:210px"><label>提供商（可自定义组合）</label>
+            <input class="inp" v-model.trim="form.dohProviders" placeholder="cloudflare,google"></div>
+          <div class="field" style="width:125px"><label>超时(ms)</label>
+            <input class="inp" type="number" v-model.number="form.dohTimeout"></div>
+        </div>
+
+        <!-- ============ BGP / RPKI ============ -->
+        <div v-else-if="current==='bgp'" class="row gap12 wrap">
+          <div class="field" style="flex:1;min-width:300px"><label>IP / CIDR 前缀 / ASN</label>
+            <input class="inp" v-model.trim="form.bgpResource" placeholder="8.8.8.8、1.1.1.0/24 或 AS13335"></div>
+          <div class="field" style="width:130px"><label>超时(ms)</label>
+            <input class="inp" type="number" v-model.number="form.bgpTimeout"></div>
+        </div>
+
         <!-- ============ Ping ============ -->
         <div v-else-if="current==='ping'" class="row gap12 wrap">
           <div class="field" style="flex:1;min-width:240px"><label>目标主机 / IP</label>
@@ -332,6 +364,18 @@
             <input class="inp" type="number" v-model.number="form.pingCount"></div>
           <div class="field" style="width:120px"><label>超时(ms)</label>
             <input class="inp" type="number" v-model.number="form.pingTimeout"></div>
+        </div>
+
+        <!-- ============ TCP 端口连通质量 ============ -->
+        <div v-else-if="current==='tcpprobe'" class="row gap12 wrap">
+          <div class="field" style="flex:1;min-width:220px"><label>目标主机 / IP</label>
+            <input class="inp" v-model.trim="form.tcpHost" placeholder="127.0.0.1"></div>
+          <div class="field" style="flex:1;min-width:240px"><label>端口（支持逗号与范围，最多 64 个）</label>
+            <input class="inp" v-model.trim="form.tcpPorts" placeholder="22,80,443,8000-8010"></div>
+          <div class="field" style="width:110px"><label>每端口次数</label>
+            <input class="inp" type="number" min="1" max="10" v-model.number="form.tcpAttempts"></div>
+          <div class="field" style="width:125px"><label>单次超时(ms)</label>
+            <input class="inp" type="number" v-model.number="form.tcpTimeout"></div>
         </div>
 
         <!-- ============ MTR ============ -->
@@ -715,6 +759,48 @@
           </div>
         </template>
 
+        <!-- ===== DoH / DNSSEC ===== -->
+        <template v-else-if="current==='doh'">
+          <div class="row gap8 wrap mb8">
+            <span class="tag" :style="badgeColor(r.successful ? 'ok' : 'high')">成功源 {{ r.successful }} / {{ r.providers.length }}</span>
+            <span class="tag" :style="badgeColor(r.consistent===true ? 'ok' : (r.consistent===false ? 'high' : 'medium'))">{{ r.consistent===true ? '跨源一致' : (r.consistent===false ? '跨源不一致' : '无法比较') }}</span>
+            <span class="tag" :style="badgeColor(r.dnssecValidated ? 'ok' : 'medium')">DNSSEC {{ r.dnssecValidated ? '已验证' : '未确认' }}</span>
+          </div>
+          <div class="tb-note mb8"><b>结论：</b>{{ r.conclusion }}</div>
+          <div class="table-wrap"><table class="ntable compact">
+            <thead><tr><th>DoH 提供商</th><th>状态</th><th>耗时</th><th>AD</th><th>TTL / 应答内容</th></tr></thead>
+            <tbody>
+              <tr v-for="p in r.providers" :key="p.provider">
+                <td>{{ p.name }}</td>
+                <td :style="{color:levelColor(p.ok?'ok':'high')}">{{ p.ok ? '正常' : (p.error || '失败') }}</td>
+                <td>{{ p.ms }}ms</td><td>{{ p.authenticatedData ? '是' : '否' }}</td>
+                <td style="word-break:break-all"><span v-if="p.answers.length"><span v-for="(a,i) in p.answers" :key="i">{{ i ? '；' : '' }}{{ a.ttl }}s · {{ a.data }}</span></span><span v-else>—</span></td>
+              </tr>
+            </tbody>
+          </table></div>
+          <div class="tb-notes mt8"><div v-for="(n,i) in r.notes" :key="i" class="tb-note">{{ n }}</div></div>
+        </template>
+
+        <!-- ===== ASN / BGP / RPKI ===== -->
+        <template v-else-if="current==='bgp'">
+          <div class="tb-note mb8"><b>结论：</b>{{ r.conclusion }}</div>
+          <div class="kv">
+            <div><span>查询对象</span><b>{{ r.resource }}</b></div>
+            <div v-if="r.prefix"><span>匹配前缀</span><b>{{ r.prefix }}</b></div>
+            <div v-if="r.asn"><span>ASN</span><b>AS{{ r.asn }}</b></div>
+            <div v-if="r.asns && r.asns.length"><span>起源 ASN</span><b>{{ r.asns.map(x=>'AS'+x).join(', ') }}</b></div>
+            <div v-if="r.holder"><span>网络持有者</span><b>{{ r.holder }}</b></div>
+            <div><span>BGP 公告</span><b :style="{color:levelColor(r.announced?'ok':'high')}">{{ r.announced ? '已公告' : '未公告' }}</b></div>
+            <div v-if="r.rpki"><span>RPKI</span><b :style="{color:levelColor(r.rpki.status==='valid'?'ok':(r.rpki.status==='invalid'?'high':'medium'))}">{{ r.rpki.status.toUpperCase() }}</b></div>
+            <div v-if="r.prefixCount!=null"><span>公告前缀数</span><b>{{ r.prefixCount }}</b></div>
+          </div>
+          <div v-if="r.prefixes && r.prefixes.length" class="mt8">
+            <div class="muted fs12 mb4">公告前缀（最多显示 100 条）</div>
+            <div class="row gap8 wrap"><span v-for="p in r.prefixes" :key="p" class="tag" :style="badgeColor('info')">{{ p }}</span></div>
+          </div>
+          <div class="tb-notes mt8"><div v-for="(n,i) in r.advice" :key="i" class="tb-note">{{ n }}</div></div>
+        </template>
+
         <!-- ===== Ping ===== -->
         <template v-else-if="current==='ping'">
           <div class="kv">
@@ -729,6 +815,30 @@
             <div><span>抖动</span><b>{{ r.jitter==null?'—':r.jitter+'ms' }}</b></div>
           </div>
           <div class="mt8"><span class="tag" :style="badgeColor(r.grade.level)">健康评分：{{ r.grade.text }}</span></div>
+        </template>
+
+        <!-- ===== TCP 端口连通质量 ===== -->
+        <template v-else-if="current==='tcpprobe'">
+          <div class="row gap8 wrap mb8">
+            <span class="tag" :style="badgeColor('info')">{{ r.host }} · {{ r.ip }}</span>
+            <span class="tag" :style="badgeColor('ok')">稳定 {{ r.summary.reachable }}</span>
+            <span class="tag" :style="badgeColor('medium')">间歇失败 {{ r.summary.unstable }}</span>
+            <span class="tag" :style="badgeColor('high')">不可达 {{ r.summary.unreachable }}</span>
+          </div>
+          <div class="tb-note mb8"><b>结论：</b>{{ r.conclusion }}</div>
+          <div class="table-wrap"><table class="ntable compact">
+            <thead><tr><th>端口</th><th>服务</th><th>状态</th><th>成功率</th><th>最小</th><th>平均</th><th>最大</th><th>失败原因</th></tr></thead>
+            <tbody>
+              <tr v-for="p in r.ports" :key="p.port">
+                <td>{{ p.port }}</td><td>{{ p.service || '—' }}</td>
+                <td :style="{color:levelColor(p.status==='reachable'?'ok':(p.status==='unstable'?'medium':'high'))}">{{ p.status==='reachable' ? '稳定可达' : (p.status==='unstable' ? '间歇失败' : '不可达') }}</td>
+                <td>{{ p.success }} / {{ p.attempts }} · {{ p.successRate }}%</td>
+                <td>{{ p.minMs==null?'—':p.minMs+'ms' }}</td><td>{{ p.avgMs==null?'—':p.avgMs+'ms' }}</td><td>{{ p.maxMs==null?'—':p.maxMs+'ms' }}</td>
+                <td>{{ p.error || '—' }}</td>
+              </tr>
+            </tbody>
+          </table></div>
+          <div class="tb-notes mt8"><div v-for="(n,i) in r.advice" :key="i" class="tb-note">{{ n }}</div></div>
         </template>
 
         <!-- ===== MTR ===== -->

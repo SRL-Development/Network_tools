@@ -2,7 +2,7 @@
 /**
  * 网络运维工具箱（NetToolbox 能力原生移植）
  * ---------------------------------------------------------------------------
- * 12 个工具，全部基于 Node 内置模块实现，Windows / Linux 双平台可用，
+ * 15 个工具，全部基于 Node 内置模块实现，Windows / Linux / macOS 可用，
  * 不引入任何新的 npm 依赖，也不依赖 Python / nmap / dig / whois 等外部程序：
  *
  *   Web / 应用层   redirect       HTTP 重定向链追踪（逐跳 3xx、环路、https→http 降级）
@@ -1384,12 +1384,213 @@ async function wolWake(macs, opts = {}) {
 }
 
 /* =========================================================================
+   13. TCP 多端口连通质量
+   ========================================================================= */
+function parseProbePorts(input) {
+  const src = Array.isArray(input) ? input.join(',') : String(input || '');
+  const out = new Set();
+  for (const token of src.split(/[\s,;]+/).filter(Boolean)) {
+    const m = token.match(/^(\d{1,5})-(\d{1,5})$/);
+    if (m) {
+      let a = Number(m[1]), b = Number(m[2]);
+      if (a > b) [a, b] = [b, a];
+      for (let p = a; p <= b && out.size < 64; p++) if (p >= 1 && p <= 65535) out.add(p);
+    } else {
+      const p = Number(token);
+      if (Number.isInteger(p) && p >= 1 && p <= 65535) out.add(p);
+    }
+    if (out.size >= 64) break;
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+async function tcpProbe(host, opts = {}) {
+  host = String(host || '').trim();
+  if (!host || host.length > 253 || !/^[a-z0-9._:-]+$/i.test(host)) {
+    return { ok: false, error: '请输入合法的主机名或 IP 地址' };
+  }
+  const ports = parseProbePorts(opts.ports || '22,80,443');
+  if (!ports.length) return { ok: false, error: '请提供 1-64 个合法端口，例如 22,80,443 或 8000-8010' };
+  const attempts = Math.round(clamp(opts.attempts, 1, 10, 3));
+  const timeoutMs = Math.round(clamp(opts.timeoutMs, 100, 10000, 1500));
+  const ip = await hostToIp(host);
+  if (!ip) return { ok: false, error: `无法解析目标：${host}` };
+
+  const rows = await Promise.all(ports.map(async port => {
+    const samples = [];
+    const errors = {};
+    for (let i = 0; i < attempts; i++) {
+      const r = await netutil.tcpConnect(host, port, timeoutMs);
+      if (r.ok) samples.push(r.ms);
+      else errors[r.error || '连接失败'] = (errors[r.error || '连接失败'] || 0) + 1;
+    }
+    const success = samples.length;
+    const serviceValue = SERVICE_MAP[port];
+    const service = typeof serviceValue === 'string' ? serviceValue : (serviceValue && serviceValue.name) || '';
+    return {
+      port, service, attempts, success,
+      successRate: +(success * 100 / attempts).toFixed(1),
+      minMs: success ? Math.min(...samples) : null,
+      avgMs: success ? +(samples.reduce((a, b) => a + b, 0) / success).toFixed(1) : null,
+      maxMs: success ? Math.max(...samples) : null,
+      status: success === attempts ? 'reachable' : (success ? 'unstable' : 'unreachable'),
+      errors: Object.entries(errors).map(([error, count]) => ({ error, count })),
+      error: Object.keys(errors).join(', ')
+    };
+  }));
+
+  const reachable = rows.filter(x => x.status === 'reachable').length;
+  const unstable = rows.filter(x => x.status === 'unstable').length;
+  const unreachable = rows.length - reachable - unstable;
+  const conclusion = unstable
+    ? `${unstable} 个端口存在间歇性连接失败，优先检查链路丢包、会话表、防火墙策略或服务负载。`
+    : (reachable ? `${reachable} 个端口持续可达${unreachable ? `，${unreachable} 个端口不可达` : '，未发现连接失败'}。` : '所有指定端口均不可达。');
+  const advice = [];
+  if (unreachable) advice.push('不可达不等于端口一定关闭：超时通常还可能由 ACL/防火墙丢弃、路由缺失或服务未监听造成。');
+  if (unstable) advice.push('建议同步运行 Ping/MTR，并在服务端检查监听队列、连接数和安全设备会话日志。');
+  if (rows.some(x => x.avgMs != null && x.avgMs >= 200)) advice.push('检测到较高 TCP 建连时延，建议结合 MTR 定位高延迟链路段。');
+  if (!advice.length) advice.push('端口连接质量稳定；如应用仍异常，请继续使用 HTTP、TLS 或会话承压工具检查应用层。');
+  return { ok: true, host, ip, ports: rows, attempts, timeoutMs, summary: { total: rows.length, reachable, unstable, unreachable }, conclusion, advice };
+}
+
+/* =========================================================================
+   14. DoH / DNSSEC 多源核验
+   ========================================================================= */
+const DOH_PROVIDERS = {
+  cloudflare: { name: 'Cloudflare', url: (d, t) => `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(d)}&type=${encodeURIComponent(t)}&do=true&cd=false`, headers: { Accept: 'application/dns-json' } },
+  google: { name: 'Google', url: (d, t) => `https://dns.google/resolve?name=${encodeURIComponent(d)}&type=${encodeURIComponent(t)}&do=1&cd=0`, headers: { Accept: 'application/dns-json' } }
+};
+const DOH_TYPES = new Set(['A', 'AAAA', 'CNAME', 'MX', 'NS', 'TXT', 'SOA', 'CAA', 'SRV', 'PTR', 'DNSKEY', 'DS']);
+
+async function dohDiag(domain, opts = {}) {
+  domain = String(domain || '').trim().replace(/\.$/, '');
+  if (!domain || domain.length > 253 || !/^[a-z0-9_.:-]+$/i.test(domain)) return { ok: false, error: '请输入合法的域名或反向查询名称' };
+  const type = String(opts.type || 'A').toUpperCase();
+  if (!DOH_TYPES.has(type)) return { ok: false, error: `不支持的记录类型：${type}` };
+  const requested = (Array.isArray(opts.providers) ? opts.providers : String(opts.providers || 'cloudflare,google').split(/[\s,;]+/))
+    .map(x => String(x).toLowerCase()).filter(x => DOH_PROVIDERS[x]);
+  const providers = [...new Set(requested.length ? requested : ['cloudflare', 'google'])];
+  const timeoutMs = Math.round(clamp(opts.timeoutMs, 1000, 20000, 8000));
+
+  const results = await Promise.all(providers.map(async key => {
+    const p = DOH_PROVIDERS[key];
+    const url = p.url(domain, type);
+    const started = Date.now();
+    const r = await fetchJson(url, { timeoutMs, headers: p.headers });
+    if (!r.ok) return { provider: key, name: p.name, ok: false, ms: Date.now() - started, error: r.error, answers: [] };
+    const data = r.data || {};
+    const answers = (Array.isArray(data.Answer) ? data.Answer : []).map(a => ({
+      name: String(a.name || '').replace(/\.$/, ''), type: a.type, ttl: a.TTL, data: String(a.data || '')
+    }));
+    return {
+      provider: key, name: p.name, ok: Number(data.Status || 0) === 0,
+      ms: Date.now() - started, rcode: Number(data.Status || 0),
+      authenticatedData: !!data.AD, checkingDisabled: !!data.CD, truncated: !!data.TC,
+      answers, authority: Array.isArray(data.Authority) ? data.Authority.length : 0,
+      error: Number(data.Status || 0) === 0 ? '' : `DNS RCODE ${data.Status}`
+    };
+  }));
+  const successful = results.filter(x => x.ok);
+  // 开启 DNSSEC 后响应中常附带每次都可能变化的 RRSIG(46)，一致性只比较业务记录。
+  const signatures = successful.map(x => x.answers.filter(a => a.type !== 46).map(a => `${a.type}:${a.data}`).sort().join('|'));
+  const consistent = successful.length >= 2 ? signatures.every(x => x === signatures[0]) : null;
+  const dnssecValidated = successful.length > 0 && successful.every(x => x.authenticatedData);
+  const notes = [];
+  if (!successful.length) notes.push('所有 DoH 提供商均查询失败，请检查本机互联网出口、代理或 HTTPS 拦截策略。');
+  else if (consistent === false) notes.push('不同 DoH 提供商返回不一致，可能由 CDN 调度、GeoDNS、缓存时差或解析污染造成。');
+  else if (consistent === true) notes.push('多家 DoH 提供商返回一致，公共解析视角未发现差异。');
+  else notes.push('仅有一个 DoH 提供商成功，无法完成跨源一致性判断。');
+  notes.push(dnssecValidated ? '成功响应均设置 AD 位，递归解析器已验证 DNSSEC。' : '未能确认所有成功响应均通过 DNSSEC 验证；域名可能未部署 DNSSEC，也可能存在无签名记录。');
+  const conclusion = !successful.length ? 'DoH 查询不可用'
+    : (consistent === false ? '公共 DNS 视角存在差异'
+      : (consistent === null ? `查询成功${dnssecValidated ? '且 DNSSEC 已验证' : ''}，但跨源一致性无法判断`
+        : (dnssecValidated ? '解析一致且 DNSSEC 已验证' : '解析一致，但 DNSSEC 未完全验证')));
+  return { ok: successful.length > 0, domain, type, providers: results, successful: successful.length, consistent, dnssecValidated, conclusion, notes };
+}
+
+/* =========================================================================
+   15. ASN / BGP / RPKI 路由安全
+   ========================================================================= */
+function validBgpResource(value) {
+  const s = String(value || '').trim();
+  if (/^AS\d{1,10}$/i.test(s)) return s.toUpperCase();
+  if (!/^[0-9a-f:.]+(?:\/\d{1,3})?$/i.test(s)) return '';
+  const parts = s.split('/');
+  const family = net.isIP(parts[0]);
+  if (!family) return '';
+  if (parts.length === 2) {
+    const n = Number(parts[1]);
+    if (!Number.isInteger(n) || n < 0 || n > (family === 6 ? 128 : 32)) return '';
+  }
+  return s;
+}
+function ripeData(endpoint, resource, timeoutMs) {
+  return fetchJson(`https://stat.ripe.net/data/${endpoint}/data.json?resource=${encodeURIComponent(resource)}`, { timeoutMs });
+}
+
+async function bgpLookup(rawResource, opts = {}) {
+  const resource = validBgpResource(rawResource);
+  if (!resource) return { ok: false, error: '请输入合法的 IP、CIDR 前缀或 ASN，例如 8.8.8.8、1.1.1.0/24、AS13335' };
+  const timeoutMs = Math.round(clamp(opts.timeoutMs, 1000, 20000, 9000));
+
+  if (/^AS/i.test(resource)) {
+    const [overview, announced] = await Promise.all([
+      ripeData('as-overview', resource, timeoutMs),
+      ripeData('announced-prefixes', resource, timeoutMs)
+    ]);
+    if (!overview.ok && !announced.ok) return { ok: false, error: `RIPEstat 查询失败：${overview.error || announced.error}` };
+    const od = overview.data && overview.data.data || {};
+    const ad = announced.data && announced.data.data || {};
+    const prefixes = (Array.isArray(ad.prefixes) ? ad.prefixes : []).map(x => typeof x === 'string' ? x : x.prefix).filter(Boolean);
+    return {
+      ok: true, queryType: 'asn', resource, asn: resource.replace(/^AS/i, ''), holder: od.holder || '',
+      announced: prefixes.length > 0, prefixCount: prefixes.length, prefixes: prefixes.slice(0, 100), truncated: prefixes.length > 100,
+      conclusion: prefixes.length ? `${resource} 当前公布 ${prefixes.length} 个前缀。` : `${resource} 未查询到已公布前缀。`,
+      advice: prefixes.length ? ['可继续用具体前缀查询其起源 ASN 与 RPKI 路由源授权状态。'] : ['确认 ASN 是否正确，或检查该网络是否由其他 ASN 代为公告。']
+    };
+  }
+
+  const [network, overview] = await Promise.all([
+    ripeData('network-info', resource, timeoutMs),
+    ripeData('prefix-overview', resource, timeoutMs)
+  ]);
+  if (!network.ok && !overview.ok) return { ok: false, error: `RIPEstat 查询失败：${network.error || overview.error}` };
+  const nd = network.data && network.data.data || {};
+  const od = overview.data && overview.data.data || {};
+  const prefix = od.prefix || nd.prefix || (resource.includes('/') ? resource : '');
+  let asns = [];
+  for (const x of (Array.isArray(od.asns) && od.asns.length ? od.asns : (nd.asns || []))) {
+    const asn = typeof x === 'object' ? (x.asn || x.number) : x;
+    if (asn !== undefined && asn !== null) asns.push(String(asn).replace(/^AS/i, ''));
+  }
+  asns = [...new Set(asns)];
+  const holderObj = (od.asns || []).find(x => typeof x === 'object' && String(x.asn || x.number) === asns[0]);
+  const holder = holderObj && holderObj.holder || '';
+  let rpki = { status: 'unknown', validatingRoas: [] };
+  if (prefix && asns[0]) {
+    const rr = await fetchJson(`https://stat.ripe.net/data/rpki-validation/data.json?resource=${encodeURIComponent('AS' + asns[0])}&prefix=${encodeURIComponent(prefix)}`, { timeoutMs });
+    if (rr.ok) {
+      const rd = rr.data && rr.data.data || {};
+      rpki = { status: String(rd.status || 'unknown').toLowerCase(), validatingRoas: rd.validating_roas || [], invalidRoas: rd.invalid_roas || [] };
+    }
+  }
+  const announced = od.announced !== undefined ? !!od.announced : asns.length > 0;
+  const advice = [];
+  if (!announced) advice.push('该前缀当前未被全局 BGP 公告；如应在线，请检查边界路由器邻居、出口策略和上游接受状态。');
+  if (rpki.status === 'invalid') advice.push('RPKI 状态为 Invalid，可能因起源 ASN 或最大前缀长度不匹配而被启用 ROV 的网络丢弃。');
+  else if (rpki.status === 'unknown' || rpki.status === 'not-found') advice.push('未找到可验证的 ROA；建议为自有前缀创建并维护 RPKI ROA。');
+  else if (rpki.status === 'valid') advice.push('RPKI 起源验证通过，仍建议结合多视角 BGP 监控检查劫持和路由泄漏。');
+  const conclusion = `${prefix || resource} ${announced ? '已在 BGP 公告' : '未公告'}${asns.length ? `，起源 AS${asns.join(', AS')}` : ''}；RPKI ${rpki.status.toUpperCase()}。`;
+  return { ok: true, queryType: 'prefix', resource, prefix, announced, asns, holder, rpki, conclusion, advice };
+}
+
+/* =========================================================================
    导出
    ========================================================================= */
 module.exports = {
   redirectTrace, httpCheck, sslCert, whoisLookup, publicIp,
   pingTest, mtrTrace, dnsDiag, fingerprintHost, ifstat, ntpQuery,
-  subnetAnalyze, subnetVlsm, subnetSame, wolWake,
+  subnetAnalyze, subnetVlsm, subnetSame, wolWake, tcpProbe, dohDiag, bgpLookup,
   SERVICE_MAP, DEFAULT_FP_PORTS, DNS_TYPES, PUBLIC_DNS, NTP_SERVERS,
-  humanBps, normalizeUrl, isPrivateIp
+  humanBps, normalizeUrl, isPrivateIp, parseProbePorts, validBgpResource
 };

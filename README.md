@@ -8,7 +8,9 @@
 | --- | --- |
 | Nmap | 主机发现、端口扫描、Banner/服务/OS 指纹、暴露面检查 |
 | MTR / traceroute / ping | 连通性、逐跳延迟、丢包与抖动定位 |
-| dig / nslookup | 多记录类型、多 DNS 服务器一致性与劫持检查 |
+| tcping / nc | 多端口重复建连、成功率、时延区间与间歇失败诊断 |
+| dig / nslookup / DoH | 多记录类型、多 DNS 与加密 DNS 一致性、劫持和 DNSSEC 检查 |
+| RIPEstat / RPKI | IP、CIDR、ASN 的 BGP 公告、起源网络与路由源授权验证 |
 | curl / OpenSSL | HTTP 可用性、重定向链、响应头、TLS 证书与加密套件 |
 | Net-SNMP | SNMP v1/v2c/v3 GET 与 WALK（只读，不提供 SET） |
 | Wireshark / tshark | 抓包任务、PCAP 解析、协议识别、会话回溯与性能指标 |
@@ -32,15 +34,17 @@ Npcap 免费版的许可与安装器不支持第三方产品静默再分发，�
 
 GitHub Releases 提供四套部署包：
 
-**最新版：[`v1.1.1 数据清理中心`](https://github.com/SRL-Development/Network_tools/releases/latest)**
+**最新版：[`v1.2.0 全球网络诊断增强`](https://github.com/SRL-Development/Network_tools/releases/latest)**
 
-- [Windows x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-windows-x64.zip)
-- [Linux x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-linux-x64.tar.gz)
-- [Docker Compose](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-docker.tar.gz)
-- [macOS Intel / Apple Silicon](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/netops-console-v1.1.1-macos.tar.gz)
-- [SHA-256 校验文件](https://github.com/SRL-Development/Network_tools/releases/download/v1.1.1/SHA256SUMS.txt)
+- [Windows x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-windows-x64.zip)
+- [Linux x64](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-linux-x64.tar.gz)
+- [Docker Compose](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-docker.tar.gz)
+- [macOS Intel / Apple Silicon](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/netops-console-v1.2.0-macos.tar.gz)
+- [SHA-256 校验文件](https://github.com/SRL-Development/Network_tools/releases/download/v1.2.0/SHA256SUMS.txt)
 
-多架构 Docker 镜像：`docker pull ghcr.io/srl-development/network_tools:1.1.1`
+多架构 Docker 镜像：`docker pull ghcr.io/srl-development/network_tools:1.2.0`
+
+v1.2.0 将网络运维工具箱扩展到 **30 个工具、14 个分类**：新增 TCP 多端口连通质量、DoH/DNSSEC 多源核验、ASN/BGP/RPKI 路由安全查询；所有新增工具均提供自定义超时与查询参数、结构化结论、下一步处置建议、权限门禁和审计记录。
 
 | 发布包 | 内容 | 启动方式 |
 | --- | --- | --- |
