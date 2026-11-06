@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: true
+        default: "1.2.0"
 
 permissions:
   contents: write
@@ -23,7 +29,8 @@ jobs:
       - name: Package Windows x64
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $version = "${{ inputs.version }}"
+          if (-not $version) { $version = $env:GITHUB_REF_NAME.TrimStart('v') }
           $name = "netops-console-v$version-windows-x64"
           New-Item -ItemType Directory -Path "dist/release/$name" -Force | Out-Null
           Copy-Item "dist/bin/netops-console-windows-x64.exe" "dist/release/$name/"
@@ -50,7 +57,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ inputs.version }}"
+          [[ -n "${version}" ]] || version="${GITHUB_REF_NAME#v}"
           name="netops-console-v${version}-linux-x64"
           mkdir -p "dist/release/${name}"
           cp dist/bin/netops-console-linux-x64 "dist/release/${name}/netops-console"
@@ -64,7 +72,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -77,7 +85,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ inputs.version }}"
+          [[ -n "${version}" ]] || version="${GITHUB_REF_NAME#v}"
           name="netops-console-v${version}-macos"
           codesign --force --sign - dist/bin/netops-console-macos-x64
           codesign --force --sign - dist/bin/netops-console-macos-arm64
@@ -102,7 +111,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ inputs.version }}"
+          [[ -n "${version}" ]] || version="${GITHUB_REF_NAME#v}"
           name="netops-console-v${version}-docker"
           mkdir -p "dist/release/${name}"
           cp Dockerfile docker-compose.yml .dockerignore package.json package-lock.json "dist/release/${name}/"
@@ -130,7 +140,8 @@ jobs:
           sha256sum netops-console-* > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
-          name: NetOps Console ${{ github.ref_name }} · 全球网络诊断增强
+          tag_name: ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
+          name: NetOps Console ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }} · 全球网络诊断增强
           generate_release_notes: true
           body: |
             本版本把网络运维工具箱扩展到 30 个工具、14 个分类，并新增：
